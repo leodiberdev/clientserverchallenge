@@ -5,10 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"io"
-	"time"
-
-	// "log"
+	"log"
 	"net/http"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -32,6 +31,8 @@ type UsdBrlRate struct {
 }
 
 func handleCotacao(w http.ResponseWriter, r *http.Request) {
+	log.Printf("%s %s", r.Method, r.URL.Path)
+
 	rates, err := RequestRates()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -54,7 +55,11 @@ func handleCotacao(w http.ResponseWriter, r *http.Request) {
 
 func StartServer() {
 	http.HandleFunc("/cotacao", handleCotacao)
-	http.ListenAndServe(":8080", nil)
+	go func() {
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			log.Fatal(err)
+		}
+	}()
 }
 
 func RequestRates() (Response, error) {

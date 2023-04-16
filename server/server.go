@@ -2,9 +2,15 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
+	"time"
+
+	// "log"
 	"net/http"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type Response struct {
@@ -25,8 +31,37 @@ type UsdBrlRate struct {
 	CreateDate string `json:"create_date"`
 }
 
-func RequestRates(ctx context.Context) (Response, error) {
+func handleCotacao(w http.ResponseWriter, r *http.Request) {
+	rates, err := RequestRates()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = saveRates(rates.UsdBrlRate)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	response, err := json.Marshal(rates.UsdBrlRate.Bid)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(response)
+}
+
+func StartServer() {
+	http.HandleFunc("/cotacao", handleCotacao)
+	http.ListenAndServe(":8080", nil)
+}
+
+func RequestRates() (Response, error) {
 	url := "https://economia.awesomeapi.com.br/json/last/USD-BRL"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
 
 	client := &http.Client{}
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -52,4 +87,76 @@ func RequestRates(ctx context.Context) (Response, error) {
 	}
 
 	return rateData, nil
+}
+
+func saveRates(rates UsdBrlRate) error {
+	// sets up the context
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	// open the db connection
+	db, err := sql.Open("sqlite3", "./db/mydb.db")
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	// creates the table if it doesn't exist
+	createTableSQL := `CREATE TABLE IF NOT EXISTS UsdBrlRate (
+        Code TEXT,
+        Codein TEXT,
+        Name TEXT,
+        High TEXT,
+        Low TEXT,
+        VarBid TEXT,
+        PctChange TEXT,
+        Bid TEXT,
+        Ask TEXT,
+        Timestamp TEXT,
+        CreateDate TEXT
+    );`
+
+	err = createTable(ctx, db, createTableSQL)
+	if err != nil {
+		return err
+	}
+
+	// prepare the statement to insert the data into the table
+	insertSQL := `INSERT INTO UsdBrlRate (Code, Codein, Name, High, Low, VarBid, PctChange, Bid, Ask, Timestamp, CreateDate) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+	stmt, err := db.Prepare(insertSQL)
+	if err != nil {
+		return err
+	}
+
+	// insert the data into the table
+	_, err = stmt.ExecContext(
+		ctx,
+		rates.Code,
+		rates.Codein,
+		rates.Name,
+		rates.High,
+		rates.Low,
+		rates.VarBid,
+		rates.PctChange,
+		rates.Bid,
+		rates.Ask,
+		rates.Timestamp,
+		rates.CreateDate,
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func createTable(ctx context.Context, db *sql.DB, query string) error {
+	_, err := db.ExecContext(ctx, query)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

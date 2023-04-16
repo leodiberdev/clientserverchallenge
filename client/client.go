@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -42,8 +42,20 @@ func RequestBid() error {
 
 	cotacao := fmt.Sprintf("Dolar: %s", bid)
 
-	err = ioutil.WriteFile("cotacao.txt", []byte(cotacao), 0644)
+	file, err := os.OpenFile("cotacao.txt", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		fmt.Println("Um erro ocorreu ao tentar abrir/criar o arquivo")
+		return err
+	}
+	defer file.Close()
 
-	fmt.Println(bid)
+	_, err = file.WriteString(cotacao)
+	if err != nil {
+		fmt.Println("Um erro ocorreu ao tentar salvar os dados no arquivo")
+		return err
+	}
+
+	fmt.Printf("Cotacao salva no arquivo com sucesso!\n")
+
 	return nil
 }
